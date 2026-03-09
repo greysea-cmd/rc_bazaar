@@ -536,39 +536,6 @@ class Book
         return $result['count'] ?? 0;
     }
 
-    // Additional helpful methods
-
-    public function searchBooks($search_term, $limit = 20, $offset = 0)
-    {
-        $query = "SELECT 
-                    b.*,
-                    c.name as category_name,
-                    u.username as seller_name,
-                    COALESCE(AVG(br.rating), 0) as average_rating
-                  FROM " . $this->table . " b
-                  LEFT JOIN categories c ON b.category_id = c.id
-                  LEFT JOIN users u ON b.seller_id = u.id
-                  LEFT JOIN book_ratings br ON b.id = br.book_id
-                  WHERE b.status = 'approved' 
-                    AND b.quantity > 0
-                    AND (b.title LIKE :search 
-                         OR b.author LIKE :search 
-                         OR b.isbn LIKE :search 
-                         OR b.description LIKE :search)
-                  GROUP BY b.id
-                  ORDER BY b.created_at DESC
-                  LIMIT :limit OFFSET :offset";
-
-        $stmt = $this->conn->prepare($query);
-        $search_param = "%" . $search_term . "%";
-        $stmt->bindParam(':search', $search_param);
-        $stmt->bindParam(':limit', $limit, PDO::PARAM_INT);
-        $stmt->bindParam(':offset', $offset, PDO::PARAM_INT);
-
-        $stmt->execute();
-        return $stmt->fetchAll(PDO::FETCH_ASSOC);
-    }
-
     public function getBooksByCategory($category_id, $limit = 20, $offset = 0)
     {
         $query = "SELECT 
@@ -766,4 +733,62 @@ class Book
 
         return $stats;
     }
+
+public function getRejectedBooks($offset = 0, $limit = 10) {
+    $query = "SELECT b.*, 
+                     c.name as category_name,
+                     CONCAT(u.first_name, ' ', u.last_name) as seller_name,
+                     u.id as seller_id
+              FROM books b
+              LEFT JOIN categories c ON b.category_id = c.id
+              LEFT JOIN users u ON b.seller_id = u.id
+              WHERE b.status = 'rejected'
+              ORDER BY b.created_at DESC
+              LIMIT :offset, :limit";
+    
+    $stmt = $this->conn->prepare($query);
+    $stmt->bindParam(':offset', $offset, PDO::PARAM_INT);
+    $stmt->bindParam(':limit', $limit, PDO::PARAM_INT);
+    $stmt->execute();
+    
+    return $stmt->fetchAll(PDO::FETCH_ASSOC);
+}
+
+public function countBooksByStatus($status) {
+    $query = "SELECT COUNT(*) as total FROM books WHERE status = :status";
+    $stmt = $this->conn->prepare($query);
+    $stmt->bindParam(':status', $status);
+    $stmt->execute();
+    
+    $result = $stmt->fetch(PDO::FETCH_ASSOC);
+    return $result['total'];
+}
+
+public function searchBooks($search_term, $status = 'pending', $offset = 0, $limit = 10) {
+    $search_term = "%$search_term%";
+    $query = "SELECT b.*, 
+                     c.name as category_name,
+                     CONCAT(u.first_name, ' ', u.last_name) as seller_name,
+                     u.id as seller_id
+              FROM books b
+              LEFT JOIN categories c ON b.category_id = c.id
+              LEFT JOIN users u ON b.seller_id = u.id
+              WHERE b.status = :status 
+                AND (b.title LIKE :search 
+                     OR b.author LIKE :search 
+                     OR b.isbn LIKE :search
+                     OR u.first_name LIKE :search
+                     OR u.last_name LIKE :search)
+              ORDER BY b.created_at DESC
+              LIMIT :offset, :limit";
+    
+    $stmt = $this->conn->prepare($query);
+    $stmt->bindParam(':status', $status);
+    $stmt->bindParam(':search', $search_term);
+    $stmt->bindParam(':offset', $offset, PDO::PARAM_INT);
+    $stmt->bindParam(':limit', $limit, PDO::PARAM_INT);
+    $stmt->execute();
+    
+    return $stmt->fetchAll(PDO::FETCH_ASSOC);
+}
 }
