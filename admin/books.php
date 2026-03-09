@@ -1,10 +1,8 @@
 <?php
-// admin/books.php - Admin book management
 if (basename($_SERVER['PHP_SELF']) === 'books.php') {
     require_once '../config/database.php';
     require_once '../config/config.php';
     require_once '../models/Book.php';
-    require_once '../models/User.php';
 
     if (!is_admin()) {
         redirect('login.php');
@@ -13,37 +11,70 @@ if (basename($_SERVER['PHP_SELF']) === 'books.php') {
     $database = new Database();
     $db = $database->getConnection();
     $book = new Book($db);
-    $user = new User($db);
 
-    $status_filter = $_GET['status'] ?? 'pending';
-    $page = isset($_GET['page']) ? max(1, (int)$_GET['page']) : 1;
-    $offset = ($page - 1) * ITEMS_PER_PAGE;
-    $books = [];
-    $total_books = 0;
-
-    // Get books based on filter with pagination
-    switch ($status_filter) {
-        case 'approved':
-            $books = $book->getApprovedBooks($offset, ITEMS_PER_PAGE);
-            $total_books = $book->countBooksByStatus('approved');
-            break;
-        case 'rejected':
-            $books = $book->getRejectedBooks($offset, ITEMS_PER_PAGE);
-            $total_books = $book->countBooksByStatus('rejected');
-            break;
-        case 'pending':
-        default:
-            $books = $book->getPendingBooks($offset, ITEMS_PER_PAGE);
-            $total_books = $book->countBooksByStatus('pending');
-            break;
+    // Handle delete request
+    if (isset($_GET['delete']) && !empty($_GET['delete'])) {
+        $delete_id = (int)$_GET['delete'];
+        
+        // Get book details to delete image
+        $book_data = $book->getBookById($delete_id);
+        
+        if ($book->delete($delete_id)) {
+            // Delete book image if exists
+            if (!empty($book_data['image_url'])) {
+                $image_path = '../' . UPLOAD_PATH . $book_data['image_url'];
+                if (file_exists($image_path)) {
+                    unlink($image_path);
+                }
+            }
+            flash_message('Book deleted successfully!', 'success');
+        } else {
+            flash_message('Failed to delete book.', 'error');
+        }
+        
+        // Redirect back to the same status filter
+        $redirect_status = isset($_GET['status']) ? $_GET['status'] : 'pending';
+        header('Location: books.php?status=' . $redirect_status);
+        exit();
     }
 
-    $total_pages = ceil($total_books / ITEMS_PER_PAGE);
+    $status_filter = $_GET['status'] ?? 'pending';
+    $page = max(1, $_GET['page'] ?? 1);
+    $offset = ($page - 1) * ITEMS_PER_PAGE;
     
-    // Get counts for badges
-    $pending_count = $book->countBooksByStatus('pending');
-    $approved_count = $book->countBooksByStatus('approved');
-    $rejected_count = $book->countBooksByStatus('rejected');
+    
+    $count_pending = $db->query("SELECT COUNT(*) FROM books WHERE status = 'pending'")->fetchColumn();
+    $count_approved = $db->query("SELECT COUNT(*) FROM books WHERE status = 'approved'")->fetchColumn();
+    $count_rejected = $db->query("SELECT COUNT(*) FROM books WHERE status = 'rejected'")->fetchColumn();
+    
+    $query = "SELECT b.*, 
+                     c.name as category_name,
+                     CONCAT(u.first_name, ' ', u.last_name) as seller_name,
+                     u.id as seller_id,
+                     u.email as seller_email
+              FROM books b
+              LEFT JOIN categories c ON b.category_id = c.id
+              LEFT JOIN users u ON b.seller_id = u.id
+              WHERE b.status = :status
+              ORDER BY b.created_at DESC
+              LIMIT :offset, :limit";
+    
+    $stmt = $db->prepare($query);
+    
+    $stmt->bindValue(':status', $status_filter, PDO::PARAM_STR);
+    $stmt->bindValue(':offset', (int)$offset, PDO::PARAM_INT);
+    $stmt->bindValue(':limit', ITEMS_PER_PAGE, PDO::PARAM_INT);
+    
+    $stmt->execute();
+    $books = $stmt->fetchAll(PDO::FETCH_ASSOC);
+    
+    $count_query = "SELECT COUNT(*) FROM books WHERE status = :status";
+    $count_stmt = $db->prepare($count_query);
+    $count_stmt->bindValue(':status', $status_filter, PDO::PARAM_STR);
+    $count_stmt->execute();
+    $total_books = $count_stmt->fetchColumn();
+    
+    $total_pages = ceil($total_books / ITEMS_PER_PAGE);
 ?>
 
 <!DOCTYPE html>
@@ -74,23 +105,14 @@ if (basename($_SERVER['PHP_SELF']) === 'books.php') {
             margin-left: 5px;
             font-size: 0.75rem;
         }
-        .filter-active .badge-count {
-            background-color: white;
-            color: #0d6efd;
+        .action-buttons {
+            display: flex;
+            gap: 5px;
+            flex-wrap: wrap;
         }
-        .table th {
-            background-color: #f8f9fa;
-        }
-        .status-badge {
-            font-size: 0.85rem;
-            padding: 0.35em 0.65em;
-        }
-        .pagination {
-            margin-top: 20px;
-            justify-content: center;
-        }
-        .search-box {
-            max-width: 300px;
+        .btn-sm {
+            padding: 0.25rem 0.5rem;
+            font-size: 0.75rem;
         }
     </style>
 </head>
@@ -123,9 +145,6 @@ if (basename($_SERVER['PHP_SELF']) === 'books.php') {
                     <a class="nav-link" href="orders.php">
                         <i class="fas fa-shopping-cart"></i> Orders
                     </a>
-                    <!-- <a class="nav-link" href="disputes.php">
-                        <i class="fas fa-exclamation-triangle"></i> Disputes
-                    </a> -->
                 </div>
             </div>
 
@@ -134,28 +153,16 @@ if (basename($_SERVER['PHP_SELF']) === 'books.php') {
 
                 <div class="d-flex justify-content-between align-items-center mb-4">
                     <h2><i class="fas fa-book"></i> Book Management</h2>
-                    
-                    <!-- Search Box -->
-                    <div class="search-box">
-                        <form method="GET" action="books.php" class="d-flex">
-                            <input type="hidden" name="status" value="<?php echo $status_filter; ?>">
-                            <input type="text" name="search" class="form-control form-control-sm me-2" 
-                                   placeholder="Search books..." value="<?php echo htmlspecialchars($_GET['search'] ?? ''); ?>">
-                            <button type="submit" class="btn btn-sm btn-primary">
-                                <i class="fas fa-search"></i>
-                            </button>
-                        </form>
-                    </div>
                 </div>
 
-                <!-- Filter Tabs -->
+                <!-- Filter Tabs with Counts -->
                 <ul class="nav nav-pills mb-4">
                     <li class="nav-item">
                         <a class="nav-link <?php echo $status_filter === 'pending' ? 'active' : ''; ?>" 
                            href="?status=pending">
                             Pending 
                             <span class="badge-count <?php echo $status_filter === 'pending' ? 'bg-light text-dark' : 'bg-secondary'; ?>">
-                                <?php echo $pending_count; ?>
+                                <?php echo $count_pending; ?>
                             </span>
                         </a>
                     </li>
@@ -164,7 +171,7 @@ if (basename($_SERVER['PHP_SELF']) === 'books.php') {
                            href="?status=approved">
                             Approved 
                             <span class="badge-count <?php echo $status_filter === 'approved' ? 'bg-light text-dark' : 'bg-secondary'; ?>">
-                                <?php echo $approved_count; ?>
+                                <?php echo $count_approved; ?>
                             </span>
                         </a>
                     </li>
@@ -173,7 +180,7 @@ if (basename($_SERVER['PHP_SELF']) === 'books.php') {
                            href="?status=rejected">
                             Rejected 
                             <span class="badge-count <?php echo $status_filter === 'rejected' ? 'bg-light text-dark' : 'bg-secondary'; ?>">
-                                <?php echo $rejected_count; ?>
+                                <?php echo $count_rejected; ?>
                             </span>
                         </a>
                     </li>
@@ -182,21 +189,69 @@ if (basename($_SERVER['PHP_SELF']) === 'books.php') {
                 <?php if (empty($books)): ?>
                     <div class="text-center py-5">
                         <i class="fas fa-book fa-3x text-muted mb-3"></i>
-                        <h4>No <?php echo $status_filter; ?> books found</h4>
+                        <h4>No <?php echo htmlspecialchars($status_filter); ?> books found</h4>
                         <p class="text-muted">
                             <?php if ($status_filter === 'pending'): ?>
-                                All book listings have been reviewed!
+                                There are no pending books waiting for review.
                             <?php elseif ($status_filter === 'approved'): ?>
                                 No approved books available.
                             <?php else: ?>
                                 No rejected books found.
                             <?php endif; ?>
                         </p>
-                        <?php if ($status_filter !== 'pending'): ?>
-                            <a href="?status=pending" class="btn btn-primary mt-2">
-                                View Pending Books
+                        
+                        <?php if ($status_filter !== 'pending' && $count_pending > 0): ?>
+                            <a href="?status=pending" class="btn btn-primary mt-3">
+                                View <?php echo $count_pending; ?> Pending Book(s)
                             </a>
                         <?php endif; ?>
+                        
+                        <!-- Quick action to add a test book -->
+                        <div class="mt-4">
+                            <button class="btn btn-outline-secondary" onclick="showAddTestForm()">
+                                Add Test Book
+                            </button>
+                        </div>
+                        
+                        <!-- Hidden form to add test book -->
+                        <div id="addTestForm" style="display: none; margin-top: 20px; max-width: 500px; margin-left: auto; margin-right: auto;">
+                            <form method="POST" action="add-test-book.php" class="text-start border p-4 rounded">
+                                <h5>Add Test Book</h5>
+                                <div class="mb-3">
+                                    <label class="form-label">Book Title</label>
+                                    <input type="text" name="title" class="form-control" value="Test Book <?php echo date('Y-m-d H:i:s'); ?>" required>
+                                </div>
+                                <div class="mb-3">
+                                    <label class="form-label">Author</label>
+                                    <input type="text" name="author" class="form-control" value="Test Author" required>
+                                </div>
+                                <div class="mb-3">
+                                    <label class="form-label">Status</label>
+                                    <select name="status" class="form-control">
+                                        <option value="pending">Pending</option>
+                                        <option value="approved">Approved</option>
+                                        <option value="rejected">Rejected</option>
+                                    </select>
+                                </div>
+                                <div class="mb-3">
+                                    <label class="form-label">Price</label>
+                                    <input type="number" step="0.01" name="price" class="form-control" value="19.99" required>
+                                </div>
+                                <div class="mb-3">
+                                    <label class="form-label">Condition</label>
+                                    <select name="condition_type" class="form-control">
+                                        <option value="new">New</option>
+                                        <option value="like_new">Like New</option>
+                                        <option value="good" selected>Good</option>
+                                        <option value="fair">Fair</option>
+                                        <option value="poor">Poor</option>
+                                    </select>
+                                </div>
+                                <input type="hidden" name="seller_id" value="1">
+                                <button type="submit" class="btn btn-primary">Add Test Book</button>
+                                <button type="button" class="btn btn-secondary" onclick="showAddTestForm()">Cancel</button>
+                            </form>
+                        </div>
                     </div>
                 <?php else: ?>
                     <div class="table-responsive">
@@ -208,6 +263,7 @@ if (basename($_SERVER['PHP_SELF']) === 'books.php') {
                                     <th>Category</th>
                                     <th>Condition</th>
                                     <th>Price</th>
+                                    <th>Quantity</th>
                                     <th>Status</th>
                                     <th>Submitted</th>
                                     <th>Actions</th>
@@ -222,12 +278,7 @@ if (basename($_SERVER['PHP_SELF']) === 'books.php') {
                                                 <img src="../<?php echo UPLOAD_PATH . $book_item['image_url']; ?>" 
                                                      alt="Book cover" 
                                                      class="me-3 rounded" 
-                                                     style="width: 50px; height: 60px; object-fit: cover;"
-                                                     onerror="this.style.display='none'; this.nextElementSibling.style.display='flex';">
-                                                <div class="me-3 bg-light d-flex align-items-center justify-content-center rounded" 
-                                                     style="width: 50px; height: 60px; display: none;">
-                                                    <i class="fas fa-book text-muted"></i>
-                                                </div>
+                                                     style="width: 50px; height: 60px; object-fit: cover;">
                                             <?php else: ?>
                                                 <div class="me-3 bg-light d-flex align-items-center justify-content-center rounded" 
                                                      style="width: 50px; height: 60px;">
@@ -236,59 +287,48 @@ if (basename($_SERVER['PHP_SELF']) === 'books.php') {
                                             <?php endif; ?>
                                             <div>
                                                 <strong><?php echo htmlspecialchars($book_item['title']); ?></strong><br>
-                                                <small class="text-muted">by <?php echo htmlspecialchars($book_item['author']); ?></small><br>
+                                                <small class="text-muted">by <?php echo htmlspecialchars($book_item['author']); ?></small>
                                                 <?php if (!empty($book_item['isbn'])): ?>
-                                                    <small class="text-muted">ISBN: <?php echo htmlspecialchars($book_item['isbn']); ?></small>
+                                                    <br><small class="text-muted">ISBN: <?php echo htmlspecialchars($book_item['isbn']); ?></small>
                                                 <?php endif; ?>
                                             </div>
                                         </div>
                                     </td>
                                     <td>
                                         <?php 
-                                        $seller_name = htmlspecialchars($book_item['seller_name'] ?? 'Unknown');
-                                        $seller_id = $book_item['seller_id'] ?? 0;
+                                        echo htmlspecialchars($book_item['seller_name'] ?? 'Unknown Seller');
                                         ?>
-                                        <a href="user-details.php?id=<?php echo $seller_id; ?>" class="text-decoration-none">
-                                            <?php echo $seller_name; ?>
-                                        </a>
                                     </td>
-                                    <td><?php echo htmlspecialchars($book_item['category_name'] ?? 'N/A'); ?></td>
+                                    <td><?php echo htmlspecialchars($book_item['category_name'] ?? 'Uncategorized'); ?></td>
                                     <td>
-                                        <span class="badge bg-secondary status-badge">
-                                            <?php echo ucwords(str_replace('_', ' ', $book_item['condition_type'])); ?>
+                                        <span class="badge bg-secondary">
+                                            <?php echo ucwords(str_replace('_', ' ', $book_item['condition_type'] ?? 'Unknown')); ?>
                                         </span>
                                     </td>
-                                    <td><strong><?php echo format_price($book_item['price']); ?></strong></td>
+                                    <td><strong><?php echo format_price($book_item['price'] ?? 0); ?></strong></td>
+                                    <td><?php echo $book_item['quantity'] ?? 1; ?></td>
                                     <td>
                                         <?php
-                                        $status = $book_item['status'] ?? 'pending';
                                         $status_colors = [
                                             'pending' => 'warning',
                                             'approved' => 'success',
                                             'rejected' => 'danger'
                                         ];
-                                        $color = $status_colors[$status] ?? 'secondary';
+                                        $color = $status_colors[$book_item['status']] ?? 'secondary';
                                         ?>
-                                        <span class="badge bg-<?php echo $color; ?> status-badge">
-                                            <?php echo ucfirst($status); ?>
-                                        </span>
-                                        <?php if (!empty($book_item['quantity']) && $book_item['quantity'] > 1): ?>
-                                            <br><small class="text-muted">Qty: <?php echo $book_item['quantity']; ?></small>
-                                        <?php endif; ?>
-                                    </td>
-                                    <td>
-                                        <span title="<?php echo date('Y-m-d H:i:s', strtotime($book_item['created_at'])); ?>">
-                                            <?php echo time_ago($book_item['created_at']); ?>
+                                        <span class="badge bg-<?php echo $color; ?>">
+                                            <?php echo ucfirst($book_item['status']); ?>
                                         </span>
                                     </td>
+                                    <td><?php echo time_ago($book_item['created_at']); ?></td>
                                     <td>
-                                        <div class="btn-group" role="group">
+                                        <div class="action-buttons">
                                             <a href="book-review.php?id=<?php echo $book_item['id']; ?>" 
                                                class="btn btn-sm btn-primary" 
                                                title="Review">
                                                 <i class="fas fa-eye"></i>
                                             </a>
-                                            <?php if ($status_filter === 'approved'): ?>
+                                            <?php if ($book_item['status'] === 'approved'): ?>
                                                 <a href="../edit-book.php?id=<?php echo $book_item['id']; ?>" 
                                                    class="btn btn-sm btn-warning"
                                                    title="Edit">
@@ -298,7 +338,7 @@ if (basename($_SERVER['PHP_SELF']) === 'books.php') {
                                             <button type="button" 
                                                     class="btn btn-sm btn-danger" 
                                                     title="Delete"
-                                                    onclick="confirmDelete(<?php echo $book_item['id']; ?>, '<?php echo htmlspecialchars($book_item['title']); ?>')">
+                                                    onclick="confirmDelete(<?php echo $book_item['id']; ?>, '<?php echo htmlspecialchars($book_item['title'], ENT_QUOTES); ?>', '<?php echo $status_filter; ?>')">
                                                 <i class="fas fa-trash"></i>
                                             </button>
                                         </div>
@@ -312,25 +352,17 @@ if (basename($_SERVER['PHP_SELF']) === 'books.php') {
                     <!-- Pagination -->
                     <?php if ($total_pages > 1): ?>
                         <nav aria-label="Page navigation">
-                            <ul class="pagination">
+                            <ul class="pagination justify-content-center">
                                 <li class="page-item <?php echo $page <= 1 ? 'disabled' : ''; ?>">
-                                    <a class="page-link" href="?status=<?php echo $status_filter; ?>&page=<?php echo $page-1; ?>">
-                                        Previous
-                                    </a>
+                                    <a class="page-link" href="?status=<?php echo urlencode($status_filter); ?>&page=<?php echo $page-1; ?>">Previous</a>
                                 </li>
-                                
                                 <?php for ($i = 1; $i <= $total_pages; $i++): ?>
                                     <li class="page-item <?php echo $i == $page ? 'active' : ''; ?>">
-                                        <a class="page-link" href="?status=<?php echo $status_filter; ?>&page=<?php echo $i; ?>">
-                                            <?php echo $i; ?>
-                                        </a>
+                                        <a class="page-link" href="?status=<?php echo urlencode($status_filter); ?>&page=<?php echo $i; ?>"><?php echo $i; ?></a>
                                     </li>
                                 <?php endfor; ?>
-                                
                                 <li class="page-item <?php echo $page >= $total_pages ? 'disabled' : ''; ?>">
-                                    <a class="page-link" href="?status=<?php echo $status_filter; ?>&page=<?php echo $page+1; ?>">
-                                        Next
-                                    </a>
+                                    <a class="page-link" href="?status=<?php echo urlencode($status_filter); ?>&page=<?php echo $page+1; ?>">Next</a>
                                 </li>
                             </ul>
                         </nav>
@@ -341,34 +373,55 @@ if (basename($_SERVER['PHP_SELF']) === 'books.php') {
     </div>
 
     <!-- Delete Confirmation Modal -->
-    <div class="modal fade" id="deleteModal" tabindex="-1">
+    <div class="modal fade" id="deleteModal" tabindex="-1" aria-hidden="true">
         <div class="modal-dialog">
             <div class="modal-content">
-                <div class="modal-header">
-                    <h5 class="modal-title">Confirm Delete</h5>
-                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                <div class="modal-header bg-danger text-white">
+                    <h5 class="modal-title">
+                        <i class="fas fa-exclamation-triangle me-2"></i>
+                        Confirm Delete
+                    </h5>
+                    <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
                 </div>
                 <div class="modal-body">
-                    <p>Are you sure you want to delete <strong id="bookTitle"></strong>?</p>
-                    <p class="text-danger"><small>This action cannot be undone.</small></p>
+                    <p class="fs-5">Are you sure you want to delete <strong id="deleteBookTitle"></strong>?</p>
+                    <p class="text-danger mb-0">
+                        <i class="fas fa-exclamation-circle me-1"></i>
+                        This action cannot be undone. All data associated with this book will be permanently removed.
+                    </p>
                 </div>
                 <div class="modal-footer">
-                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
-                    <a href="#" id="confirmDeleteBtn" class="btn btn-danger">Delete</a>
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">
+                        <i class="fas fa-times me-1"></i> Cancel
+                    </button>
+                    <a href="#" id="confirmDeleteBtn" class="btn btn-danger">
+                        <i class="fas fa-trash me-1"></i> Delete Permanently
+                    </a>
                 </div>
             </div>
         </div>
     </div>
 
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/bootstrap/5.1.3/js/bootstrap.bundle.min.js"></script>
     <script>
-        function confirmDelete(bookId, bookTitle) {
-            document.getElementById('bookTitle').textContent = bookTitle;
-            document.getElementById('confirmDeleteBtn').href = 'delete-book.php?id=' + bookId;
+        function showAddTestForm() {
+            var form = document.getElementById('addTestForm');
+            if (form.style.display === 'none' || form.style.display === '') {
+                form.style.display = 'block';
+            } else {
+                form.style.display = 'none';
+            }
+        }
+
+        function confirmDelete(bookId, bookTitle, statusFilter) {
+            document.getElementById('deleteBookTitle').textContent = bookTitle;
+            document.getElementById('confirmDeleteBtn').href = 'books.php?delete=' + bookId + '&status=' + statusFilter;
+            
             var deleteModal = new bootstrap.Modal(document.getElementById('deleteModal'));
             deleteModal.show();
         }
     </script>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/bootstrap/5.1.3/js/bootstrap.bundle.min.js"></script>
 </body>
 </html>
 <?php

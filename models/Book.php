@@ -11,17 +11,14 @@ class Book
 
     public function create($data)
     {
-        // First, validate and sanitize the category_id
         $category_id = isset($data['category_id']) ? (int)$data['category_id'] : null;
 
-        // If category_id is provided, check if it exists in the categories table
         if ($category_id) {
             $check_stmt = $this->conn->prepare("SELECT id FROM categories WHERE id = :category_id");
             $check_stmt->bindParam(':category_id', $category_id, PDO::PARAM_INT);
             $check_stmt->execute();
 
             if (!$check_stmt->fetch()) {
-                // Category doesn't exist, log error and set to null
                 error_log("Warning: Invalid category_id ($category_id) provided for book creation. Setting to NULL.");
                 $category_id = null;
             }
@@ -37,7 +34,6 @@ class Book
         $stmt->bindParam(':author', $data['author']);
         $stmt->bindParam(':isbn', $data['isbn']);
 
-        // Handle category_id - can be null if invalid or not provided
         if ($category_id) {
             $stmt->bindParam(':category_id', $category_id, PDO::PARAM_INT);
         } else {
@@ -53,7 +49,6 @@ class Book
         return $stmt->execute();
     }
 
-    // Updated to include rating data
     public function getApprovedBooks($search = null, $category = null, $limit = null, $offset = null)
     {
         $query = "SELECT 
@@ -345,7 +340,6 @@ class Book
         return $result['total'];
     }
 
-    // Get book rating statistics
     public function getBookRatingStats($book_id)
     {
         $query = "SELECT 
@@ -365,7 +359,6 @@ class Book
         return $stmt->fetch(PDO::FETCH_ASSOC);
     }
 
-    // Get recent book ratings with user info
     public function getRecentBookRatings($book_id, $limit = 5)
     {
         $query = "SELECT 
@@ -387,7 +380,6 @@ class Book
         return $stmt->fetchAll(PDO::FETCH_ASSOC);
     }
 
-    // Get books by average rating (for recommendations)
     public function getTopRatedBooks($limit = 10)
     {
         $query = "SELECT 
@@ -412,7 +404,6 @@ class Book
         return $stmt->fetchAll(PDO::FETCH_ASSOC);
     }
 
-    // Get user's rated books
     public function getUserRatedBooks($user_id, $limit = null, $offset = null)
     {
         $query = "SELECT 
@@ -447,7 +438,6 @@ class Book
         return $stmt->fetchAll(PDO::FETCH_ASSOC);
     }
 
-    // New methods that were outside the class
     public function getBooksByStatus($status, $limit = null, $offset = null)
     {
         $query = "SELECT b.*, 
@@ -591,10 +581,8 @@ class Book
 
     public function updateBook($book_id, $data)
     {
-        // Validate and sanitize category_id
         $category_id = isset($data['category_id']) ? (int)$data['category_id'] : null;
 
-        // If category_id is provided, check if it exists
         if ($category_id) {
             $check_stmt = $this->conn->prepare("SELECT id FROM categories WHERE id = :category_id");
             $check_stmt->bindParam(':category_id', $category_id, PDO::PARAM_INT);
@@ -626,7 +614,6 @@ class Book
         $stmt->bindParam(':author', $data['author']);
         $stmt->bindParam(':isbn', $data['isbn']);
 
-        // Handle category_id
         if ($category_id) {
             $stmt->bindParam(':category_id', $category_id, PDO::PARAM_INT);
         } else {
@@ -642,15 +629,19 @@ class Book
         return $stmt->execute();
     }
 
-    public function deleteBook($book_id, $seller_id)
+    public function delete($id, $seller_id = null)
     {
-        $query = "DELETE FROM " . $this->table . " 
-                  WHERE id = :id AND seller_id = :seller_id";
-
-        $stmt = $this->conn->prepare($query);
-        $stmt->bindParam(':id', $book_id);
-        $stmt->bindParam(':seller_id', $seller_id);
-
+        // Maybe it checks if the seller owns the book
+        if ($seller_id) {
+            $query = "DELETE FROM books WHERE id = :id AND seller_id = :seller_id";
+            $stmt = $this->conn->prepare($query);
+            $stmt->bindParam(':id', $id);
+            $stmt->bindParam(':seller_id', $seller_id);
+        } else {
+            $query = "DELETE FROM books WHERE id = :id";
+            $stmt = $this->conn->prepare($query);
+            $stmt->bindParam(':id', $id);
+        }
         return $stmt->execute();
     }
 
@@ -734,8 +725,9 @@ class Book
         return $stats;
     }
 
-public function getRejectedBooks($offset = 0, $limit = 10) {
-    $query = "SELECT b.*, 
+    public function getRejectedBooks($offset = 0, $limit = 10)
+    {
+        $query = "SELECT b.*, 
                      c.name as category_name,
                      CONCAT(u.first_name, ' ', u.last_name) as seller_name,
                      u.id as seller_id
@@ -745,28 +737,30 @@ public function getRejectedBooks($offset = 0, $limit = 10) {
               WHERE b.status = 'rejected'
               ORDER BY b.created_at DESC
               LIMIT :offset, :limit";
-    
-    $stmt = $this->conn->prepare($query);
-    $stmt->bindParam(':offset', $offset, PDO::PARAM_INT);
-    $stmt->bindParam(':limit', $limit, PDO::PARAM_INT);
-    $stmt->execute();
-    
-    return $stmt->fetchAll(PDO::FETCH_ASSOC);
-}
 
-public function countBooksByStatus($status) {
-    $query = "SELECT COUNT(*) as total FROM books WHERE status = :status";
-    $stmt = $this->conn->prepare($query);
-    $stmt->bindParam(':status', $status);
-    $stmt->execute();
-    
-    $result = $stmt->fetch(PDO::FETCH_ASSOC);
-    return $result['total'];
-}
+        $stmt = $this->conn->prepare($query);
+        $stmt->bindParam(':offset', $offset, PDO::PARAM_INT);
+        $stmt->bindParam(':limit', $limit, PDO::PARAM_INT);
+        $stmt->execute();
 
-public function searchBooks($search_term, $status = 'pending', $offset = 0, $limit = 10) {
-    $search_term = "%$search_term%";
-    $query = "SELECT b.*, 
+        return $stmt->fetchAll(PDO::FETCH_ASSOC);
+    }
+
+    public function countBooksByStatus($status)
+    {
+        $query = "SELECT COUNT(*) as total FROM books WHERE status = :status";
+        $stmt = $this->conn->prepare($query);
+        $stmt->bindParam(':status', $status);
+        $stmt->execute();
+
+        $result = $stmt->fetch(PDO::FETCH_ASSOC);
+        return $result['total'];
+    }
+
+    public function searchBooks($search_term, $status = 'pending', $offset = 0, $limit = 10)
+    {
+        $search_term = "%$search_term%";
+        $query = "SELECT b.*, 
                      c.name as category_name,
                      CONCAT(u.first_name, ' ', u.last_name) as seller_name,
                      u.id as seller_id
@@ -781,14 +775,46 @@ public function searchBooks($search_term, $status = 'pending', $offset = 0, $lim
                      OR u.last_name LIKE :search)
               ORDER BY b.created_at DESC
               LIMIT :offset, :limit";
-    
-    $stmt = $this->conn->prepare($query);
-    $stmt->bindParam(':status', $status);
-    $stmt->bindParam(':search', $search_term);
-    $stmt->bindParam(':offset', $offset, PDO::PARAM_INT);
-    $stmt->bindParam(':limit', $limit, PDO::PARAM_INT);
-    $stmt->execute();
-    
-    return $stmt->fetchAll(PDO::FETCH_ASSOC);
-}
+
+        $stmt = $this->conn->prepare($query);
+        $stmt->bindParam(':status', $status);
+        $stmt->bindParam(':search', $search_term);
+        $stmt->bindParam(':offset', $offset, PDO::PARAM_INT);
+        $stmt->bindParam(':limit', $limit, PDO::PARAM_INT);
+        $stmt->execute();
+
+        return $stmt->fetchAll(PDO::FETCH_ASSOC);
+    }
+
+    public function update($data)
+    {
+        $query = "UPDATE books 
+              SET title = :title, 
+                  author = :author, 
+                  isbn = :isbn, 
+                  category_id = :category_id, 
+                  condition_type = :condition_type, 
+                  description = :description, 
+                  price = :price, 
+                  quantity = :quantity, 
+                  image_url = :image_url,
+                  updated_at = NOW()
+              WHERE id = :id AND seller_id = :seller_id";
+
+        $stmt = $this->conn->prepare($query);
+
+        $stmt->bindParam(':title', $data['title']);
+        $stmt->bindParam(':author', $data['author']);
+        $stmt->bindParam(':isbn', $data['isbn']);
+        $stmt->bindParam(':category_id', $data['category_id']);
+        $stmt->bindParam(':condition_type', $data['condition_type']);
+        $stmt->bindParam(':description', $data['description']);
+        $stmt->bindParam(':price', $data['price']);
+        $stmt->bindParam(':quantity', $data['quantity']);
+        $stmt->bindParam(':image_url', $data['image_url']);
+        $stmt->bindParam(':id', $data['id']);
+        $stmt->bindParam(':seller_id', $data['seller_id']);
+
+        return $stmt->execute();
+    }
 }

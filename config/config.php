@@ -1,16 +1,13 @@
 <?php
-// Start session only if not already started
 if (session_status() === PHP_SESSION_NONE) {
     session_start();
 }
 
-// Auto-detect base URL FIRST (so it can be used later)
 if (!defined('BASE_URL')) {
     $protocol = isset($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off' ? 'https://' : 'http://';
     $host = $_SERVER['HTTP_HOST'];
     $script_name = dirname($_SERVER['SCRIPT_NAME']);
 
-    // Remove trailing slash from script_name if it's not root
     if ($script_name !== '/') {
         $script_name = rtrim($script_name, '/');
     }
@@ -214,8 +211,6 @@ if (!function_exists('send_order_confirmation_email')) {
         $message .= "\nYou can view your order details at: " . SITE_URL . "my-orders.php\n\n";
         $message .= "Thank you,\n" . SITE_NAME . " Team";
 
-        // For production, use PHPMailer or similar
-        // mail($email, $subject, $message);
 
         error_log("Email would be sent to: $email, Subject: $subject");
     }
