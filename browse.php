@@ -4,7 +4,7 @@ require_once 'config/database.php';
 require_once 'config/config.php';
 require_once 'models/Book.php';
 require_once 'models/Category.php';
-require_once 'models/Cart.php'; // Fixed: Capital C
+require_once 'models/Cart.php';
 
 // Start session if not already started
 if (session_status() === PHP_SESSION_NONE) {
@@ -1552,15 +1552,15 @@ function build_query_with_view($view)
     return http_build_query($params);
 }
 
-// Helper function to format price (should be in config/functions.php)
+// Helper function to format price
 if (!function_exists('format_price')) {
     function format_price($price)
     {
-        return '$' . number_format($price, 2);
+        return 'NPR' . number_format($price, 2);
     }
 }
 
-// Helper function to display flash messages (should be in config/functions.php)
+// Helper function to display flash messages
 if (!function_exists('display_flash_message')) {
     function display_flash_message()
     {
