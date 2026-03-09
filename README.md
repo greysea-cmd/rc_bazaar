@@ -27,7 +27,7 @@
 ### Clone the Repository
 
 ```bash
-git clone https://github.com/greysea-cmd/RC-Bazaar.git
+git clone https://github.com/greysea-cmd/rc_bazaar.git
 ````
 
 ### Set Up the Project
@@ -42,62 +42,15 @@ git clone https://github.com/greysea-cmd/RC-Bazaar.git
    * Open **phpMyAdmin**
    * Create a database named `rc_bazaar`
    * Import the `rc_bazaar.sql` file (if available)
-3. File Structure
-```
-rc_bazaar/
-├── config/
-│   ├── database.php       # Database configuration
-│   └── config.php         # General configuration
-├── models/
-│   ├── User.php          # User model
-│   ├── Book.php          # Book model
-│   ├── Order.php         # Order model
-│   ├── Dispute.php       # Dispute model
-│   ├── Category.php      # Category model
-│   ├── Rating.php      # Category model
-│   ├── Wishlist.php      # Category model
-│   └── Admin.php         # Admin model
-├── admin/
-│   ├── login.php         # Admin login
-│   ├── dashboard.php     # Admin dashboard
-│   ├── users.php         # User management
-│   ├── books.php         # Book management
-│   ├── book-review.php   # Book approval
-│   ├── orders.php        # Order management
-│   ├── disputes.php      # Dispute handling
-│   ├── profile.php       # Admin profile
-│   └── logout.php        # Admin logout
-├── uploads/
-│   ├── profile/          # Profile images directory
-│   └── books/            # Book images directory
-├── index.php             # Homepage
-├── login.php             # User login
-├── register.php          # User registration
-├── dashboard.php         # User dashboard
-├── sell-book.php         # Sell book form
-├── book-details.php      # Book details page
-├── my-books.php          # User's books
-├── my-orders.php         # User's orders
-├── my-wishlist.php       # User's wishlists
-├── profile.php           # User's profiles
-├── my-disputes.php       # User's disputes
-├── create-dispute.php    # Create dispute
-├── order-details.php     # submit rating
-├── submit-rating.php     # Order details
-├── logout.php            # User logout
-├── wishlist.php          # 
-├── .htaccess             # URL rewriting & security
-└── README.md             # This file
-```
 
 
-4. Configure database credentials in:
+3. Configure database credentials in:
 
 ```
 config/database.php
 ```
 
-5. Start your server and visit:
+4. Start your server and visit:
 
 ```
 http://localhost/RC-Bazaar
